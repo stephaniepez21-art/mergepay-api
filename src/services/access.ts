@@ -7,7 +7,16 @@ export interface MembershipContext {
   role: string;
 }
 
-/** Ensure the user is a member of the group; returns their membership row. */
+/**
+ * Ensure the user is currently a member of the group; returns their membership
+ * row.
+ *
+ * A caller who is not a member gets `403 FORBIDDEN` when the group exists and
+ * `404 NOT_FOUND` when it does not. The distinction is deliberate — clients
+ * need to tell "this resource is gone" from "you may not look at it" to render
+ * a useful state — and it leaks only group-id existence, never any group
+ * content, membership, or balance.
+ */
 export async function requireMembership(
   groupId: string,
   userId: string
@@ -15,16 +24,24 @@ export async function requireMembership(
   const member = await prisma.groupMember.findUnique({
     where: { groupId_userId: { groupId, userId } },
   });
+
   if (!member) {
-    // Don't leak existence — treat as not found for non-members.
-    const group = await prisma.group.findUnique({ where: { id: groupId } });
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      select: { id: true },
+    });
     if (!group) throw Errors.notFound("Group not found");
     throw Errors.forbidden("You are not a member of this group");
   }
+
   return { groupId, userId, role: member.role };
 }
 
-/** Ensure the user is an admin of the group. */
+/**
+ * Ensure the user is currently an administrator of the group. The role is
+ * always read from the database membership row and is never taken from
+ * request data.
+ */
 export async function requireAdmin(
   groupId: string,
   userId: string
